@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-gold: #f4c069;
+  --color-abyss: #050505;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050505;
+  color: #a1a1aa;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Glassmorphism ---------- */
+@utility glass {
+  background: linear-gradient(180deg, rgba(28, 28, 32, 0.55), rgba(12, 12, 14, 0.5));
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 24px 60px -24px rgba(0, 0, 0, 0.9);
+}
+
+@utility glass-soft {
+  background: rgba(20, 20, 23, 0.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* Background vignette + faint grid */
+.bg-void {
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 44%, rgba(60, 60, 68, 0.35), transparent 70%),
+    radial-gradient(ellipse 120% 90% at 50% 50%, #0b0b0d 0%, #050505 70%);
+}
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black, transparent 80%);
+}
+.bg-noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+}
+
+/* Thin scrollbars */
+.thin-scroll::-webkit-scrollbar { width: 4px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }
+.thin-scroll { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.1) transparent; }
+
+/* Animated conic ring for the AI orb */
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.orb-ring { animation: spin-slow 6s linear infinite; }
+
+@keyframes breathe { 0%,100% { opacity: .55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.15); } }
+.breathe { animation: breathe 2.4s ease-in-out infinite; }
+
+.text-glow { text-shadow: 0 0 18px rgba(255, 255, 255, 0.35); }
+
+/* Note content: source code remains selectable and scrolls within the card. */
+.note-markdown { color: #a1a1aa; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.note-markdown > * { margin: 0 0 14px; }
+.note-markdown :is(h1,h2,h3,h4,h5,h6) { color: var(--note-accent); font-size: 13.5px; font-weight: 500; line-height: 1.6; margin: 20px 0 9px; }
+.note-markdown > :first-child { margin-top: 0; }
+.note-markdown h1 { font-size: 15px; }
+.note-markdown :is(ul,ol) { padding-left: 20px; }
+.note-markdown ul { list-style-type: disc; }
+.note-markdown ol { list-style-type: decimal; }
+.note-markdown li { padding-left: 2px; margin: 6px 0; }
+.note-markdown li::marker { color: var(--note-accent); }
+.note-markdown li > p { margin: 4px 0; }
+.note-markdown li input { accent-color: var(--note-accent); margin-right: 7px; }
+.note-markdown strong { color: #d4d4d8; font-weight: 600; }
+.note-markdown a { color: var(--note-accent); text-decoration: underline; text-underline-offset: 3px; }
+.note-markdown blockquote { border-left: 2px solid var(--note-accent); padding: 2px 12px; background: #ffffff03; }
+.note-markdown blockquote p { margin: 4px 0; }
+.note-markdown hr { border: 0; border-top: 1px solid #ffffff12; margin: 18px 0; }
+.note-table-wrap { max-width: 100%; overflow-x: auto; }
+.note-markdown table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.note-markdown :is(th,td) { border: 1px solid #ffffff12; padding: 6px 9px; white-space: nowrap; text-align: left; }
+.note-markdown th { color: #d4d4d8; background: #ffffff04; }
+.note-image-reference { color: #71717a; font-size: 11px; }
+.note-code-container, .note-code { min-width: 0; max-width: 100%; }
+.note-code { border: 1px solid #ffffff12; border-radius: 10px; overflow: hidden; background: #090a10b3; margin: 9px 0; }
+.note-code-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px; background: #ffffff03; border-bottom: 1px solid #ffffff0b; }
+.note-code-label { display: inline-flex; align-items: center; gap: 6px; color: #a9a7bc; font: 10px var(--font-mono); }
+.note-code pre { margin: 0; padding: 12px; overflow-x: auto; max-width: 100%; font: 11px/1.85 var(--font-mono); color: #c4c7d4; white-space: pre; tab-size: 2; overflow-wrap: normal; }
+.note-code-compact pre { font-size: 10.5px; padding: 9px; }
+.note-code :is(.hljs-attr,.hljs-attribute,.hljs-title,.hljs-section) { color: #c8a9ef; }
+.note-code :is(.hljs-string,.hljs-addition) { color: #86cbb8; }
+.note-code :is(.hljs-number,.hljs-literal,.hljs-variable) { color: #e0ba7f; }
+.note-code :is(.hljs-keyword,.hljs-built_in,.hljs-name,.hljs-selector-tag) { color: #94bce6; }
+.note-code :is(.hljs-comment,.hljs-quote,.hljs-meta) { color: #70798c; }
+.note-copy-action, .note-copy-inline { display: inline-flex; align-items: center; flex-shrink: 0; }
+.note-copy-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-radius: 4px; padding: 3px 5px; color: #828494; font: 10px/1.4 var(--font-sans); cursor: pointer; transition: color .15s, background .15s; }
+.note-copy-button:hover, .note-copy-button:focus-visible { color: #e4e4e7; background: #ffffff0b; }
+.note-copy-button:focus-visible { outline: 1px solid #a9a7bc; outline-offset: 2px; }
+.note-copy-button:disabled { cursor: wait; opacity: .6; }
+.note-copy-button.is-copied { color: #86cbb8; }
+.note-copy-button.is-error { color: #e5a2a2; }
+.note-inline-code { display: inline; border: 1px solid #ffffff0e; background: #a898cf0a; border-radius: 4px; padding: 1px 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.note-inline-code > code { color: #c9bfdc; font: 11px/1.8 var(--font-mono); white-space: break-spaces; overflow-wrap: anywhere; }
+.note-copy-inline { vertical-align: middle; margin-left: 3px; }
+.note-copy-inline .note-copy-button { padding: 2px; }

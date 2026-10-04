@@ -1,0 +1,24 @@
+.neural-vault-container {
+  padding: 0 !important;
+  overflow: hidden !important;
+  position: relative;
+  min-height: 0;
+  background: #050505;
+}
+
+.neural-vault-frame {
+  display: block;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background: #050505;
+}
+
+.neural-vault-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text-muted);
+}

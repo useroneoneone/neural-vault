@@ -1,0 +1,9 @@
+{
+  "id": "neural-vault",
+  "name": "Neural Vault",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.2",
+  "description": "用六个根目录的水母星图、分支与洞察浏览当前知识库。",
+  "author": "Y",
+  "isDesktopOnly": true
+}

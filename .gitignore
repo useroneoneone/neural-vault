@@ -1,0 +1,13 @@
+node_modules/
+dist/
+plugin-dist/
+.codex-plugin-build/
+.codex-preview/
+src/data/vaultSnapshot.json
+docs/plans/
+release-dist/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
