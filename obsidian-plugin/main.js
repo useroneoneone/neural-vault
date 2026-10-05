@@ -1,6 +1,5 @@
-import { Plugin, ItemView, TFile, Notice } from 'obsidian';
+import { Plugin, ItemView, TFile, TFolder, Notice } from 'obsidian';
 import { buildVault } from '../src/data/vaultAdapter.js';
-import { categoryForPath } from '../src/data/categories.js';
 import UI_DOCUMENT from 'neural-vault:ui';
 import { injectVault } from './iframeDocument.js';
 import { handleCopyRequest } from './clipboardBridge.js';
@@ -163,8 +162,10 @@ export default class NeuralVaultPlugin extends Plugin {
 
   async readVault() {
     const files = this.app.vault.getMarkdownFiles();
+    const folders = (this.app.vault.getAllLoadedFiles?.() ?? [])
+      .filter((file) => file instanceof TFolder && file.path && file.path !== '/')
+      .map((folder) => folder.path);
     const records = await Promise.all(files.map(async (file) => {
-      if (!categoryForPath(file.path)) return { path: file.path };
       try {
         return {
           path: file.path,
@@ -182,6 +183,7 @@ export default class NeuralVaultPlugin extends Plugin {
       ...buildVault(records.filter(Boolean), {
         resolvedLinks: this.app.metadataCache.resolvedLinks,
         readingHistory: this.data.readingHistory,
+        folders,
       }),
       vaultName: this.app.vault.getName(),
     };
@@ -196,7 +198,7 @@ export default class NeuralVaultPlugin extends Plugin {
   }
 
   recordReading(file) {
-    if (!(file instanceof TFile) || file.extension !== 'md' || !categoryForPath(file.path)) return;
+    if (!(file instanceof TFile) || file.extension !== 'md') return;
     const day = readingDate();
     const days = this.data.readingHistory[file.path] ?? {};
     if (days[day]) return;

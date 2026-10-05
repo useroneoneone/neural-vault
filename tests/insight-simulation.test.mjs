@@ -41,6 +41,54 @@ const advance = (simulation, frames) => {
   for (let i = 0; i < frames; i++) simulation.step(1 / 60);
 };
 
+test('settled physics pauses and drag or resize resumes its actual integration', () => {
+  const graph = new InsightSimulation(FIXTURE.notes, FIXTURE.edges);
+  graph.resize(1083, 882);
+  advance(graph, 900);
+  assert.equal(graph.isSettled, true);
+  const positions = graph.nodes.map(({ x, y }) => ({ x, y }));
+  const steps = graph.stats.integrationSteps;
+  advance(graph, 120);
+  assert.equal(graph.stats.integrationSteps, steps);
+  assert.deepEqual(graph.nodes.map(({ x, y }) => ({ x, y })), positions);
+  const node = graph.nodes[0];
+  graph.startDrag(node.id, node.x + 80, node.y + 40);
+  graph.step(1 / 60);
+  assert.equal(graph.stats.integrationSteps, steps + 1);
+  graph.endDrag();
+  advance(graph, 900);
+  assert.equal(graph.isSettled, true);
+  graph.resize(1280, 800);
+  assert.equal(graph.isSettled, false);
+  const resumed = graph.stats.integrationSteps;
+  graph.step(1 / 60);
+  assert.equal(graph.stats.integrationSteps, resumed + 1);
+  assertContained(graph);
+});
+
+test('a 600-note fixture starts without synchronous warmup and uses spatial forces', () => {
+  const notes = Array.from({ length: 600 }, (_, index) => ({ id: `note-${index}`, title: `笔记 ${index}` }));
+  const edges = notes.slice(1).map((note, index) => ({ source: notes[index].id, target: note.id }));
+  const graph = new InsightSimulation(notes, edges);
+  graph.resize(1440, 900);
+  assert.equal(graph.stats.warmupSteps, 0);
+  assert.equal(graph.stats.integrationSteps, 0);
+  graph.step(1 / 60);
+  assert.ok(graph.stats.repulsionVisits < notes.length * notes.length * 0.6, 'distant cells are aggregated');
+  assert.ok(graph.stats.collisionPairs < 3 * notes.length * (notes.length - 1) / 2, 'contacts use local spatial buckets');
+  advance(graph, 900);
+  assertContained(graph);
+  assert.equal(graph.isSettled, true);
+  const xs = graph.nodes.map((node) => node.x), ys = graph.nodes.map((node) => node.y);
+  assert.ok(Math.max(...xs) - Math.min(...xs) > graph.bounds.width * 0.65);
+  assert.ok(Math.max(...ys) - Math.min(...ys) > graph.bounds.height * 0.65);
+  const neighbour = graph.nodes[1], previous = { x: neighbour.x, y: neighbour.y };
+  graph.startDrag(graph.nodes[0].id, graph.bounds.right, graph.bounds.top);
+  advance(graph, 30);
+  assert.ok(Math.hypot(neighbour.x - previous.x, neighbour.y - previous.y) > 0.1);
+  assertContained(graph);
+});
+
 function assertContained(simulation) {
   const { left, right, top, bottom } = simulation.bounds;
   for (const node of simulation.nodes) {

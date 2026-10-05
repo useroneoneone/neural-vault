@@ -64,11 +64,15 @@ npm run import:vault -- "/path/to/your-vault"
 npm run import:vault -- "/path/to/your-vault" "/path/to/preview-snapshot.json"
 ```
 
-默认输出为 `src/data/vaultSnapshot.json`，供 Web 预览读取。指定其它输出位置用于导出快照时，预览仍读取默认文件。导入器扫描六个根目录下的 Markdown 文件，输出正文、路径和文件时间；这些本地预览数据应留在开发环境中。
+默认输出为 `src/data/vaultSnapshot.json`，供 Web 预览读取。指定其它输出位置用于导出快照时，预览仍读取默认文件。导入器扫描整个知识库中的 Markdown 文件，包括根目录笔记，输出正文、路径、文件时间及一级目录列表；这些本地预览数据应留在开发环境中。
+
+运行 `npm run dev:stress` 可在 `http://127.0.0.1:5174/` 查看独立的合成测试库，默认 12 个水母、472 篇笔记。左下角支持切换 30 个目录、六类示例和空知识库，用来验证滚动、搜索定位、目录变化和空状态。
 
 ## 目录与数据
 
-插件读取六个根分组：
+插件自动发现使用者当前知识库的实际一级目录，每个目录生成一个水母，图例与其共用名称、颜色和数量。直接位于知识库根目录的 Markdown 归入“根目录”，空文件夹也会显示；任意目录名称和数量均可读取。
+
+以下名称提供原有的配色和图标预设：
 
 | 水母 | 支持的根目录名 |
 | --- | --- |
@@ -79,9 +83,13 @@ npm run import:vault -- "/path/to/your-vault" "/path/to/preview-snapshot.json"
 | 灵感 | `05-灵感`、`灵感` |
 | skills | `06-Skills`、`skills` |
 
-子目录中的 Markdown 笔记归入其根分组。笔记标题依次采用 frontmatter 的 `title`、正文第一个一级标题、文件名；文件在图中通过库内完整路径区分，因此重名笔记也可以打开正确的文件。
+子目录中的 Markdown 笔记归入其根分组，两个实际一级目录保持独立。笔记标题依次采用 frontmatter 的 `title`、正文第一个一级标题、文件名；文件在图中通过库内完整路径区分，因此重名笔记也可以打开正确的文件。
 
-插件通过 `app.vault.getMarkdownFiles()` 和 `cachedRead()` 读取文件，双链采用 Obsidian 已解析的 `metadataCache.resolvedLinks`。文件增删、改名、修改及链接解析更新后，事件合并触发刷新。
+插件通过 `app.vault.getMarkdownFiles()` 和 `cachedRead()` 读取全部 Markdown，通过 `getAllLoadedFiles()` 发现文件夹，双链采用 Obsidian 已解析的 `metadataCache.resolvedLinks`。文件或目录增删、改名、修改及链接解析更新后，事件合并触发刷新。
+
+分支列表采用 52px 固定行高，只挂载可见笔记及附近少量行，支持滚动浏览全部笔记；搜索选中远处笔记时自动定位。普通分支连线为淡色静态线，选中和悬停连线播放流光。目录很多时可通过根目录选择器访问全部目录，星图优先沿椭圆围绕混沌体排列，空间不足时自动避让并按屏幕空间分组展示。
+
+洞察中的大库先显示全图概览，滚轮或右下角按钮可缩放，拖动空白处可平移；放大后显示笔记标题。拖动节点会带动关联节点，搜索结果会自动移入视野，“适应洞察图谱”按钮可恢复全图。
 
 Web 预览使用本地 Markdown 链接解析。别名、重名和复杂相对路径的解析结果，以实际插件中的 Obsidian 数据为准。
 

@@ -1,3 +1,6 @@
+import { addTreeRepulsion, buildRepulsionTree, visitNearbyPairs } from './spatialForces.js';
+import { wrapLabel } from './labelLayout.js';
+
 const TAU = Math.PI * 2;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const finite = (value, fallback) => Number.isFinite(value) ? value : fallback;
@@ -9,21 +12,14 @@ const finite = (value, fallback) => Number.isFinite(value) ? value : fallback;
  * preserves enough room for two lines of text as well as the dots themselves.
  */
 export class InsightSimulation {
-  constructor(notes, edges) {
+  constructor(notes, edges, { measureText } = {}) {
     this.nodes = notes.map((note, index) => {
-      let currentWidth = 0, titleWidth = 0, lines = 1;
-      for (const char of note.title || '') {
-        const charWidth = /[\u0000-\u007f]/u.test(char) ? 5.8 : 11;
-        if (currentWidth + charWidth > 142) {
-          titleWidth = Math.max(titleWidth, currentWidth);
-          currentWidth = 0;
-          lines++;
-        }
-        currentWidth += charWidth;
-      }
+      const label = wrapLabel(note.title, measureText);
+      const lines = Math.max(1, label.lines.length);
       return {
         id: note.id, x: 0, y: 0, vx: 0, vy: 0, index, degree: 0,
-        titleWidth: Math.max(30, titleWidth, currentWidth) + 14,
+        labelLines: label.lines, labelWidth: label.width,
+        titleWidth: Math.max(30, label.width) + 14,
         titleHeight: 37 + (lines - 1) * 15,
         titleOffset: 11 + (lines - 1) * 7.5,
       };
@@ -44,6 +40,7 @@ export class InsightSimulation {
     this.isSettled = false;
     this.temperature = 1;
     this._forces = this.nodes.map(() => ({ x: 0, y: 0 }));
+    this.stats = { integrationSteps: 0, repulsionVisits: 0, collisionPairs: 0, warmupSteps: 0 };
   }
 
   resize(width, height) {
@@ -59,13 +56,16 @@ export class InsightSimulation {
     const area = this.bounds.width * this.bounds.height;
     this.spacing = Math.sqrt(area / Math.max(1, this.nodes.length));
     this.labelWidth = Math.min(150, Math.max(35, this.spacing * 1.48));
-    this.labelHeight = Math.min(58, Math.max(20, this.spacing * 0.62));
+    const maximumTitleHeight = Math.max(58, ...this.nodes.map((node) => node.titleHeight));
+    this.labelHeight = Math.min(maximumTitleHeight, Math.max(20, this.spacing * 0.62));
     this.repulsion = Math.max(80, this.spacing * this.spacing * 0.48);
     this.linkLength = this.spacing * 1.65;
     if (!previous) {
       this.reset();
       // Entering the graph should reveal a spacious layout, not a tiny knot.
-      for (let frame = 0; frame < 240; frame++) this.step(1 / 60);
+      const warmup = this.nodes.length <= 96 ? 240 : 0;
+      for (let frame = 0; frame < warmup; frame++) this.step(1 / 60);
+      this.stats.warmupSteps = warmup;
     } else {
       for (const node of this.nodes) {
         node.x = left + (node.x - previous.left) / previous.width * this.bounds.width;
@@ -123,7 +123,7 @@ export class InsightSimulation {
   }
 
   step(dt) {
-    if (!this.bounds || !this.nodes.length || !Number.isFinite(dt) || dt <= 0) return;
+    if (!this.bounds || this.isSettled || !this.nodes.length || !Number.isFinite(dt) || dt <= 0) return;
     // A resumed/background tab cannot inject a huge integration timestep.
     const frames = Math.min(dt * 60, 3);
     const substeps = Math.ceil(frames);
@@ -132,6 +132,9 @@ export class InsightSimulation {
   }
 
   _integrate(time) {
+    this.stats.integrationSteps++;
+    this.stats.repulsionVisits = 0;
+    this.stats.collisionPairs = 0;
     const { left, top, width, height } = this.bounds;
     const centerX = left + width / 2;
     const centerY = top + height / 2;
@@ -141,11 +144,17 @@ export class InsightSimulation {
       force.y = (centerY - node.y) * 0.0016;
     }
 
-    for (let a = 0; a < this.nodes.length; a++) {
+    if (this.nodes.length > 96) {
+      const tree = buildRepulsionTree(this.nodes);
+      for (const node of this.nodes) {
+        this.stats.repulsionVisits += addTreeRepulsion(tree, node, this.repulsion, this._forces[node.index]);
+      }
+    } else for (let a = 0; a < this.nodes.length; a++) {
       const first = this.nodes[a];
       const firstForce = this._forces[a];
       for (let b = a + 1; b < this.nodes.length; b++) {
         const second = this.nodes[b];
+        this.stats.repulsionVisits++;
         const secondForce = this._forces[b];
         let dx = first.x - second.x;
         let dy = first.y - second.y;
@@ -204,36 +213,35 @@ export class InsightSimulation {
       this._contain(node);
     }
     this._separateLabels(time);
-    const maximumSpeed = Math.max(...this.nodes.map((node) => Math.hypot(node.vx, node.vy)));
     this.temperature = this.dragged ? 1 : this.temperature * Math.pow(0.992, time);
-    this.isSettled = !this.dragged && maximumSpeed < 0.025;
+    // Cooling finishes the simulation once its forces are negligible. Reheat on
+    // dragging/resize, rather than re-running the spatial index while stationary.
+    this.isSettled = !this.dragged && this.temperature < 0.001;
+    if (this.isSettled) for (const node of this.nodes) { node.vx = 0; node.vy = 0; }
   }
 
   _separateLabels(time) {
     // Positional contact complements the smooth forces: titles remain legible
     // even when several link springs try to pull their nodes into one spot.
     for (let pass = 0; pass < 3; pass++) {
-      for (let a = 0; a < this.nodes.length; a++) {
-        const first = this.nodes[a];
-        for (let b = a + 1; b < this.nodes.length; b++) {
-          const second = this.nodes[b];
+      this.stats.collisionPairs += visitNearbyPairs(this.nodes, this.labelWidth, this.labelHeight, (first, second) => {
           const dx = first.x - second.x;
           const dy = first.y + first.titleOffset - second.y - second.titleOffset;
           const collisionWidth = Math.min(this.labelWidth, (first.titleWidth + second.titleWidth) / 2);
           const collisionHeight = Math.min(this.labelHeight, (first.titleHeight + second.titleHeight) / 2);
           const overlapX = collisionWidth - Math.abs(dx);
           const overlapY = collisionHeight - Math.abs(dy);
-          if (overlapX <= 0 || overlapY <= 0) continue;
+          if (overlapX <= 0 || overlapY <= 0) return;
           const firstWeight = first === this.dragged ? 0 : second === this.dragged ? 1 : 0.5;
           const secondWeight = 1 - firstWeight;
           if (overlapX < overlapY) {
-            const push = Math.sign(dx || (a % 2 ? 1 : -1)) * Math.min(overlapX + 0.05, 12 * time);
+            const push = Math.sign(dx || (first.index % 2 ? 1 : -1)) * Math.min(overlapX + 0.05, 12 * time);
             first.x += push * firstWeight;
             second.x -= push * secondWeight;
             if (first.vx * push < 0) first.vx = 0;
             if (second.vx * push > 0) second.vx = 0;
           } else {
-            const push = Math.sign(dy || (a % 2 ? 1 : -1)) * Math.min(overlapY + 0.05, 12 * time);
+            const push = Math.sign(dy || (first.index % 2 ? 1 : -1)) * Math.min(overlapY + 0.05, 12 * time);
             first.y += push * firstWeight;
             second.y -= push * secondWeight;
             if (first.vy * push < 0) first.vy = 0;
@@ -241,8 +249,7 @@ export class InsightSimulation {
           }
           this._contain(first);
           this._contain(second);
-        }
-      }
+      });
     }
   }
 

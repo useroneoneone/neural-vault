@@ -16,6 +16,7 @@ export default function GraphCanvas({ data, engineRef, labelRegistry, anchorRegi
     engineRef.current = engine;
     // Reapply the current view when a hot update recreates the canvas engine.
     const state = stateRef.current;
+    engine.setCategoryPage?.(state.categoryPage ?? 0);
     engine.setMode(state.mode, state.catId, state.sidebarW);
     engine.setQuery(state.query);
     engine.setActive(state.activeId);

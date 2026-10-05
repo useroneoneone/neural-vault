@@ -1,6 +1,8 @@
 import { glow, rgba, sprite } from './sprites';
 import { mulberry32 } from '../data/random';
 import { InsightSimulation } from './InsightSimulation';
+import { branchLayoutMetrics, categoryLayoutCapacity, categoryScene } from './categoryLayout';
+import { InsightCamera, insightWorldScale } from './InsightCamera';
 
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -54,6 +56,9 @@ export class NeuralEngine {
 
     this.mode = 'galaxy'; this.sel = null; this.branchT = 0; this.overlayT = 0; this.sidebarW = 0;
     this.insightT = 0; this.drag = null; this.suppressClick = false;
+    this.pan = null; this._cameraChanged = false;
+    this.categoryPage = 0; this.categoryPageCount = 1;
+    this.branchParallaxScale = 1;
     this.hoverLeaf = null; this.hoverCatDom = null; this.hoverCatCanvas = null;
     this.hoverAnchor = null; this.activeId = null; this.matches = null;
 
@@ -105,7 +110,10 @@ export class NeuralEngine {
       vx: (rand() - 0.5) * 0.006, vy: (rand() - 0.5) * 0.006, d: 0.4 + rand() * 1.8,
       warm: rand() < 0.25,
     }));
-    this.insight = new InsightSimulation(notes, edges);
+    this.ctx.font = '500 11px Inter, "PingFang SC", "Microsoft YaHei", sans-serif';
+    this.insight = new InsightSimulation(notes, edges, { measureText: (text) => this.ctx.measureText(text).width });
+    this.insightCamera = new InsightCamera();
+    this.insightWorldScale = insightWorldScale(notes.length);
   }
 
   initSphere(rand) {
@@ -148,9 +156,13 @@ export class NeuralEngine {
     this.onWinMove = (e) => { this.mouse.x = e.clientX; this.mouse.y = e.clientY; };
     this.onDown = (e) => {
       this.suppressClick = false;
-      if (this.mode !== 'insight' || e.button !== 0 || !e.isPrimary || this.drag) return;
+      if (this.mode !== 'insight' || e.button !== 0 || !e.isPrimary || this.drag || this.pan) return;
       this.hitTest(e.clientX, e.clientY);
-      if (!this.hoverLeaf) return;
+      if (!this.hoverLeaf) {
+        this.pan = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false };
+        this.canvas.setPointerCapture(e.pointerId);
+        return;
+      }
       const leaf = this.hoverLeaf;
       this.drag = {
         leaf, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
@@ -159,6 +171,18 @@ export class NeuralEngine {
       this.canvas.setPointerCapture(e.pointerId);
     };
     this.onMove = (e) => {
+      const pan = this.pan;
+      if (pan && pan.pointerId === e.pointerId) {
+        if (!pan.moved && Math.hypot(e.clientX - pan.startX, e.clientY - pan.startY) >= 4) pan.moved = true;
+        if (pan.moved) {
+          e.preventDefault();
+          this.insightCamera.panBy(e.clientX - pan.lastX, e.clientY - pan.lastY);
+          this._cameraChanged = true;
+          this.canvas.style.cursor = 'grabbing';
+          pan.lastX = e.clientX; pan.lastY = e.clientY;
+        }
+        return;
+      }
       const drag = this.drag;
       if (!drag || drag.pointerId !== e.pointerId) {
         this.hitTest(e.clientX, e.clientY);
@@ -166,26 +190,36 @@ export class NeuralEngine {
       }
       if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) >= 4) {
         drag.moved = true;
-        this.insight.startDrag(drag.leaf.id, drag.leaf.px, drag.leaf.py);
+        const position = this.insightCamera.screenToWorld(drag.leaf.px, drag.leaf.py);
+        this.insight.startDrag(drag.leaf.id, position.x, position.y);
       }
       if (drag.moved) {
         e.preventDefault();
-        this.insight.dragTo(e.clientX + drag.offsetX, e.clientY + drag.offsetY);
+        const position = this.insightCamera.screenToWorld(e.clientX + drag.offsetX, e.clientY + drag.offsetY);
+        this.insight.dragTo(position.x, position.y);
         this.canvas.style.cursor = 'grabbing';
       }
     };
     this.onUp = (e) => {
-      if (!this.drag || this.drag.pointerId !== e.pointerId) return;
-      this.suppressClick = this.drag.moved || e.type !== 'pointerup';
+      const gesture = this.drag || this.pan;
+      if (!gesture || gesture.pointerId !== e.pointerId) return;
+      this.suppressClick = gesture.moved || e.type !== 'pointerup';
       this.cancelDrag();
       this.hitTest(e.clientX, e.clientY);
     };
     this.onLostCapture = () => {
-      if (this.drag) { this.suppressClick = true; this.cancelDrag(); }
+      if (this.drag || this.pan) { this.suppressClick = true; this.cancelDrag(); }
     };
     this.onLeave = () => {
-      if (this.drag) return;
+      if (this.drag || this.pan) return;
       this.hoverLeaf = null; this.hoverCatCanvas = null; this.canvas.style.cursor = 'default';
+    };
+    this.onWheel = (e) => {
+      if (this.mode !== 'insight') return;
+      e.preventDefault();
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.h : 1);
+      this.insightCamera.zoomAt(Math.exp(-delta * 0.0015), e.clientX, e.clientY);
+      this._cameraChanged = true;
     };
     this.onClick = (e) => {
       if (this.suppressClick) { this.suppressClick = false; return; }
@@ -205,12 +239,14 @@ export class NeuralEngine {
     this.canvas.addEventListener('lostpointercapture', this.onLostCapture);
     this.canvas.addEventListener('pointerleave', this.onLeave);
     this.canvas.addEventListener('click', this.onClick);
+    this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
   }
 
   cancelDrag() {
-    const drag = this.drag;
+    const drag = this.drag || this.pan;
     this.drag = null;
-    this.insight.endDrag();
+    this.pan = null;
+    if (this.insight.dragged) this.insight.endDrag();
     if (drag && this.canvas.hasPointerCapture(drag.pointerId)) this.canvas.releasePointerCapture(drag.pointerId);
     this.canvas.style.cursor = 'default';
   }
@@ -218,10 +254,12 @@ export class NeuralEngine {
   hitTest(x, y) {
     let best = null, bd = 1e9;
     for (const l of this.leaves) {
-      if (l.a < 0.3 || (this.mode === 'insight' && l.ta < 0.3)) continue;
+      if (l.a < 0.3 || l.ta < 0.3 || (this.mode === 'insight' && l.inView === false)) continue;
       const d = Math.hypot(l.px - x, l.py - y);
-      const labelHit = this.mode === 'insight' && l.labelLines &&
-        Math.abs(x - l.px) < l.labelW / 2 + 5 && y >= l.py + 7 && y <= l.py + 14 + l.labelLines.length * 15;
+      const scale = l === this.hoverLeaf || l.id === this.activeId ? Math.max(1, this.insightZoom) : this.insightZoom;
+      const titleVisible = this.insightTitleOpacity(l) > 0.1;
+      const labelHit = this.mode === 'insight' && titleVisible && l.labelLines &&
+        Math.abs(x - l.px) < l.labelW * scale / 2 + 5 && y >= l.py + 7 * scale && y <= l.py + (14 + l.labelLines.length * 15) * scale;
       if ((d < Math.max(10, l.r * 3.5) || labelHit) && d < bd) { bd = d; best = l; }
     }
     this.hoverLeaf = best;
@@ -229,12 +267,12 @@ export class NeuralEngine {
     if (!best && this.mode !== 'insight') {
       const s = this.jellySize();
       for (const c of this.cats) {
-        if (c.a < 0.3) continue;
+        if (c.a < 0.3 || c.ta < 0.3) continue;
         if (Math.hypot(c.px - x, c.py - y) < s * 1.3 * c.s) { cat = c; break; }
       }
     }
     this.hoverCatCanvas = cat;
-    this.canvas.style.cursor = this.drag?.moved ? 'grabbing' : best ? (this.mode === 'insight' ? 'grab' : 'pointer') : cat ? 'pointer' : 'default';
+    this.canvas.style.cursor = this.drag?.moved || this.pan?.moved ? 'grabbing' : best ? (this.mode === 'insight' ? 'grab' : 'pointer') : cat ? 'pointer' : this.mode === 'insight' ? 'grab' : 'default';
   }
 
   resize() {
@@ -245,7 +283,10 @@ export class NeuralEngine {
       c.style.width = w + 'px'; c.style.height = h + 'px';
     }
     this.w = w; this.h = h; this.dpr = dpr;
-    this.insight.resize(w, h);
+    const worldWidth = w * this.insightWorldScale, worldHeight = h * this.insightWorldScale;
+    this.insight.resize(worldWidth, worldHeight);
+    this.insightCamera.resize(w, h, worldWidth, worldHeight, { fit: !this._cameraReady });
+    this._cameraReady = true;
     this.layout();
   }
 
@@ -270,14 +311,49 @@ export class NeuralEngine {
     q = (q || '').trim().toLowerCase();
     if (!q) { this.matches = null; return; }
     this.matches = new Set(
-      this.leaves.filter((l) => l.n.title.toLowerCase().includes(q) || l.n.tags.some((t) => t.toLowerCase().includes(q)) || l.cat.c.name.includes(q)).map((l) => l.id),
+      this.leaves.filter((l) => l.n.title.toLowerCase().includes(q) || l.n.tags.some((t) => t.toLowerCase().includes(q)) || l.cat.c.name.toLowerCase().includes(q)).map((l) => l.id),
     );
   }
   setActive(id) { this.activeId = id; }
   setHoverAnchor(id) { this.hoverAnchor = id; }
   setHoverCat(id) { this.hoverCatDom = id ? this.catMap.get(id) : null; }
   setPaused(p) { this.paused = p; }
-  getLeafScreen(id) { const l = this.leafMap.get(id); return l ? { x: l.px, y: l.py } : null; }
+  get insightZoom() { return this.insightCamera?.zoom ?? 1; }
+  zoomInsight(factor) {
+    if (this.mode !== 'insight') return;
+    this.insightCamera.zoomAt(factor, this.w / 2, this.h / 2);
+    this._cameraChanged = true;
+  }
+  resetInsightCamera() {
+    this.insightCamera.fit();
+    this._cameraChanged = true;
+  }
+  insightTitleOpacity(leaf) {
+    if (leaf === this.hoverLeaf || leaf.id === this.activeId || leaf === this.drag?.leaf) return 1;
+    return this.insightWorldScale <= 1 ? 1 : smooth((this.insightZoom - 0.55) / 0.25);
+  }
+  setCategoryPage(page) {
+    this.categoryPage = Number.isFinite(page) ? Math.floor(page) : 0;
+    this.layout();
+  }
+  getLeafScreen(id) {
+    const leaf = this.leafMap.get(id);
+    if (!leaf) return null;
+    if (this.mode === 'insight') {
+      const node = this.insight.nodeMap.get(id);
+      let point = this.insightCamera.worldToScreen(node.x, node.y);
+      if (point.x < 140 || point.x > this.w - 210 || point.y < 110 || point.y > this.h - 110) {
+        this.insightCamera.x = node.x;
+        this.insightCamera.y = node.y;
+        this._cameraChanged = true;
+        point = this.insightCamera.worldToScreen(node.x, node.y);
+      }
+      leaf.x = leaf.tx = leaf.px = point.x;
+      leaf.y = leaf.ty = leaf.py = point.y;
+      return point;
+    }
+    return { x: leaf.px, y: leaf.py };
+  }
 
   destroy() {
     this.cancelDrag();
@@ -291,6 +367,7 @@ export class NeuralEngine {
     this.canvas.removeEventListener('lostpointercapture', this.onLostCapture);
     this.canvas.removeEventListener('pointerleave', this.onLeave);
     this.canvas.removeEventListener('click', this.onClick);
+    this.canvas.removeEventListener('wheel', this.onWheel);
   }
 
   jellySize() { return clamp(Math.min(this.w, this.h) * 0.03, 18, 32); }
@@ -298,12 +375,16 @@ export class NeuralEngine {
   /* ---------------------------------------------------------------- layout */
   layout() {
     const { w, h } = this, m = Math.min(w, h), C = this.center;
+    this.branchParallaxScale = 1;
+    this.categoryPageCount = this.cats.length <= 6 ? 1 : Math.max(1, Math.ceil(this.cats.length / categoryLayoutCapacity(w, h)));
+    this.categoryPage = clamp(this.categoryPage, 0, this.categoryPageCount - 1);
     if (this.mode === 'galaxy' || (this.mode === 'branch' && !this.sel)) {
       const cx = w / 2, cy = h * 0.43;
       C.tx = cx; C.ty = cy; C.tR = m * 0.115;
-      const rx = Math.min(w * 0.33, m * 0.78), ry = m * 0.32;
+      const scene = categoryScene(this.data.categories, w, h, 'galaxy', null, this.categoryPage);
       for (const c of this.cats) {
-        c.tx = cx + c.c.pos[0] * rx; c.ty = cy + c.c.pos[1] * ry; c.ts = 1; c.ta = 1;
+        const target = scene.targets.get(c.id);
+        c.tx = target.x; c.ty = target.y; c.ts = target.scale; c.ta = target.alpha;
       }
       for (const l of this.leaves) {
         const c = l.cat, t = 0.3 + l.u * 0.46;
@@ -311,30 +392,27 @@ export class NeuralEngine {
         const off = l.v * m * 0.1 * (1 - t * 0.35);
         l.tx = cx + dx * t + (-dy / d) * off;
         l.ty = cy + dy * t + (dx / d) * off;
-        l.ta = 1;
+        l.ta = c.ta;
       }
     } else if (this.mode === 'branch' && this.sel) {
       // Folder view: core far left, every root folder (jellyfish) in ONE column,
       // selected folder moved to the middle so its fan-out is symmetric.
       const S = this.sel, cy = h * 0.5;
-      C.tx = w * 0.075; C.ty = cy; C.tR = m * 0.075;
-      const order = this.cats.filter((c) => c !== S);
-      order.splice(Math.floor(this.cats.length / 2), 0, S);
-      const s0 = this.jellySize();
-      const colX = w * 0.185 + s0 * 6, top = h * 0.2, bot = h * 0.8;
-      order.forEach((c, i) => {
-        c.tx = colX;
-        c.ty = top + (i / Math.max(1, order.length - 1)) * (bot - top);
-        c.ts = c === S ? 1 : 0.78;
-        c.ta = c === S ? 1 : 0.62;
-      });
+      const metrics = branchLayoutMetrics(w, h, this.sidebarW || 452);
+      C.tx = metrics.coreX; C.ty = cy; C.tR = metrics.coreRadius;
+      this.branchParallaxScale = metrics.parallaxScale;
+      const scene = categoryScene(this.data.categories, w, h, 'branch', S.id);
+      for (const c of this.cats) {
+        const target = scene.targets.get(c.id);
+        c.tx = target.x; c.ty = target.y; c.ts = target.scale; c.ta = target.alpha;
+      }
       for (const l of this.leaves) {
         const c = l.cat;
         if (c === S) { l.tx = S.tx; l.ty = S.ty; l.ta = 0; continue; }
         const t = 0.3 + l.u * 0.45;
         l.tx = C.tx + (c.tx - C.tx) * t + l.v * 12;
         l.ty = C.ty + (c.ty - C.ty) * t + l.v * 16;
-        l.ta = 0.4;
+        l.ta = c.ta > 0 ? 0.4 : 0;
       }
     } else if (this.mode === 'insight') {
       const cx = w / 2, cy = h / 2;
@@ -346,8 +424,9 @@ export class NeuralEngine {
         const isVisible = !this.insightFilter || this.insightFilter === 'all' || l.n.status === this.insightFilter;
         l.ta = isVisible ? 1 : 0.05;
         const node = this.insight.nodeMap.get(l.id);
-        l.tx = node.x;
-        l.ty = node.y;
+        const projected = this.insightCamera.worldToScreen(node.x, node.y);
+        l.tx = projected.x;
+        l.ty = projected.y;
       }
     }
     if (!this._laidOut) {
@@ -384,14 +463,17 @@ export class NeuralEngine {
     M.px += (M.x / w - 0.5 - M.px) * kf;
     M.py += (M.y / h - 0.5 - M.py) * kf;
     this.insightT += ((this.mode === 'insight' ? 1 : 0) - this.insightT) * k;
-    const PX = -M.px * 26 * (1 - this.insightT), PY = -M.py * 18 * (1 - this.insightT);
+    const parallaxScale = this.mode === 'branch' ? this.branchParallaxScale : 1;
+    const PX = -M.px * 26 * (1 - this.insightT) * parallaxScale;
+    const PY = -M.py * 18 * (1 - this.insightT) * parallaxScale;
 
     if (this.mode === 'insight') {
       if (!this.paused || this.drag?.moved) this.insight.step(raw);
       for (const l of this.leaves) {
         const node = this.insight.nodeMap.get(l.id);
-        l.tx = node.x; l.ty = node.y;
-        if (this.drag?.moved && this.drag.leaf === l) { l.x = l.tx; l.y = l.ty; }
+        const projected = this.insightCamera.worldToScreen(node.x, node.y);
+        l.tx = projected.x; l.ty = projected.y;
+        if (this._cameraChanged || (this.drag?.moved && this.drag.leaf === l)) { l.x = l.tx; l.y = l.ty; }
       }
     }
 
@@ -411,7 +493,10 @@ export class NeuralEngine {
       l.x += (l.tx - l.x) * kk; l.y += (l.ty - l.y) * kk; l.a += (l.ta - l.a) * kk;
       l.px = l.x + Math.sin(t * 0.6 + l.phase) * 4 * (1 - this.insightT) + PX * 1.3;
       l.py = l.y + Math.cos(t * 0.5 + l.phase * 1.3) * 4 * (1 - this.insightT) + PY * 1.3;
+      const margin = Math.max(80, (l.labelW || 142) * this.insightZoom);
+      l.inView = this.mode !== 'insight' || (l.px > -margin && l.px < w + margin && l.py > -margin && l.py < h + margin);
     }
+    this._cameraChanged = false;
     const target = this.mode === 'branch' && this.sel ? 1 : 0;
     this.branchT += (target - this.branchT) * (1 - Math.exp(-raw * 2.2));
     if (target === 1) {
@@ -553,6 +638,8 @@ export class NeuralEngine {
     for (const e of this.cross) {
       const alpha = Math.min(e.a.a, e.b.a);
       if (alpha < 0.08) continue;
+      if (Math.max(e.a.px, e.b.px) < -20 || Math.min(e.a.px, e.b.px) > this.w + 20 ||
+          Math.max(e.a.py, e.b.py) < -20 || Math.min(e.a.py, e.b.py) > this.h + 20) continue;
       const related = focus && (e.a === focus || e.b === focus);
       const dim = this.matches && !this.matches.has(e.a.id) && !this.matches.has(e.b.id) ? 0.25 : 1;
       ctx.globalAlpha = alpha * fade * dim;
@@ -578,7 +665,7 @@ export class NeuralEngine {
       const a = { x: c.px, y: c.py }, b = { x: l.px, y: l.py };
       const ctl = { x: (a.x + b.x) / 2 + (b.y - a.y) * l.v * 0.18, y: (a.y + b.y) / 2 - (b.x - a.x) * l.v * 0.18 };
       ctx.lineWidth = hl ? 1 : 0.6;
-      ctx.strokeStyle = rgba(c.color, (hl ? 0.55 : 0.15) * l.a * dim);
+      ctx.strokeStyle = rgba(c.color, (hl ? 0.55 : 0.30) * l.a * dim);
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(ctl.x, ctl.y, b.x, b.y); ctx.stroke();
       // one slow packet per dendrite
       const tt = (t * 0.2 + l.lp) % 1;
@@ -631,20 +718,21 @@ export class NeuralEngine {
     const t = this.t;
     const focus = this.mode === 'insight' ? this.insightFocus() : null;
     for (const l of this.leaves) {
-      if (l.a < 0.01) continue;
+      if (l.a < 0.01 || (this.mode === 'insight' && l.inView === false)) continue;
       const hl = this.isHL(l);
       let a = l.a * (0.7 + 0.3 * Math.sin(t * 2.2 + l.phase));
       if (this.matches && !hl) a *= 0.18;
       const img = glow(l.cat.color);
       const related = focus && (l === focus || this.neighbors.get(focus.id)?.has(l.id));
-      const size = l.r * 7 * (hl ? 1.9 : 1) * (1 - this.insightT) + (hl ? 30 : 21) * this.insightT;
+      const nodeScale = this.mode === 'insight' ? clamp(this.insightZoom, 0.65, 1.6) : 1;
+      const size = l.r * 7 * (hl ? 1.9 : 1) * (1 - this.insightT) + (hl ? 30 : 21) * this.insightT * nodeScale;
       if (focus && !related) a *= 0.55;
       sprite(ctx, img, l.px, l.py, size, a);
       if (this.insightT > 0.01) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = l.a * this.insightT * (focus && !related ? 0.48 : 0.95) * (this.matches && !hl ? 0.3 : 1);
         ctx.fillStyle = hl ? '#ffffff' : l.cat.color;
-        ctx.beginPath(); ctx.arc(l.px, l.py, 3.4 + Math.min(l.n.backlinks, 14) * 0.08 + (hl ? 1 : 0), 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(l.px, l.py, (3.4 + Math.min(l.n.backlinks, 14) * 0.08 + (hl ? 1 : 0)) * nodeScale, 0, TAU); ctx.fill();
         ctx.globalCompositeOperation = 'lighter';
       }
       if (hl) {
@@ -810,24 +898,23 @@ export class NeuralEngine {
       ctx.lineWidth = 4;
       ctx.strokeStyle = '#0b0b0d';
       for (const l of this.leaves) {
-        if (l.a < 0.08) continue;
+        const opacity = this.insightTitleOpacity(l);
+        if (l.a < 0.08 || l.inView === false || opacity <= 0) continue;
         if (!l.labelLines) {
-          l.labelLines = [];
-          let line = '';
-          for (const char of l.n.title) {
-            if (line && ctx.measureText(line + char).width > 142) {
-              l.labelLines.push(line); line = char;
-            } else line += char;
-          }
-          if (line) l.labelLines.push(line);
-          l.labelW = Math.max(...l.labelLines.map((text) => ctx.measureText(text).width));
+          const node = this.insight.nodeMap.get(l.id);
+          l.labelLines = node.labelLines;
+          l.labelW = node.labelWidth;
         }
+        const focused = l === this.hoverLeaf || l.id === this.activeId || l === this.drag?.leaf;
+        const scale = focused ? Math.max(1, this.insightZoom) : this.insightZoom;
+        ctx.font = `500 ${11 * scale}px Inter, "PingFang SC", "Microsoft YaHei", sans-serif`;
+        ctx.lineWidth = 4 * scale;
         const related = focus && (l === focus || this.neighbors.get(focus.id)?.has(l.id));
         const dim = this.matches && !this.matches.has(l.id) ? 0.2 : 1;
-        ctx.globalAlpha = l.a * this.insightT * dim * (focus && !related ? 0.48 : 0.92);
+        ctx.globalAlpha = l.a * this.insightT * dim * (focus && !related ? 0.48 : 0.92) * opacity;
         ctx.fillStyle = l === focus ? '#ffffff' : related ? '#e4e4e7' : '#b6b6c2';
         l.labelLines.forEach((text, i) => {
-          const y = l.py + 17 + i * 15;
+          const y = l.py + (17 + i * 15) * scale;
           ctx.strokeText(text, l.px, y); ctx.fillText(text, l.px, y);
         });
       }
@@ -873,15 +960,21 @@ export class NeuralEngine {
     o.strokeStyle = rgba(S.color, 0.7); o.lineWidth = 1.2;
     o.beginPath(); o.moveTo(lr.right, hub.y); o.lineTo(hub.x, hub.y); o.stroke();
 
-    let i = 0;
+    const visibleItems = [];
     for (const [id, item] of reg.items) {
+      if ((item.container && item.container !== reg.container) || item.isVisible === false) continue;
       const el = item.el;
-      if (!el || !el.isConnected) { i++; continue; }
+      if (!el || !el.isConnected) continue;
       const r = el.getBoundingClientRect();
       const ax = r.left + r.width / 2, ay = r.top + r.height / 2;
-      if (r.width === 0 || ay < cr.top + 4 || ay > cr.bottom - 4) { i++; continue; }
-      const maxStagger = Math.min(0.5, reg.items.size * 0.02);
-      const stagger = (i / Math.max(1, reg.items.size)) * maxStagger;
+      if (r.width === 0 || ay < cr.top + 4 || ay > cr.bottom - 4) continue;
+      visibleItems.push({ id, item, ax, ay });
+    }
+    visibleItems.sort((a, b) => (a.item.visibleOrder ?? a.item.order ?? a.ay) - (b.item.visibleOrder ?? b.item.order ?? b.ay));
+    let i = 0;
+    for (const { id, item, ax, ay } of visibleItems) {
+      const maxStagger = Math.min(0.5, visibleItems.length * 0.02);
+      const stagger = (i / Math.max(1, visibleItems.length)) * maxStagger;
       const prog = smooth(clamp((ot - stagger) / (1 - stagger), 0, 1));
       if (prog <= 0) { i++; continue; }
       const b = { x: ax, y: ay }, dx = ax - hub.x;
@@ -898,17 +991,17 @@ export class NeuralEngine {
       }
       if (hl) { o.lineWidth = 5; o.strokeStyle = rgba(col, 0.12); o.stroke(); }
       o.lineWidth = hl ? 1.5 : 0.8;
-      o.strokeStyle = rgba(col, hl ? 0.95 : 0.32);
+      o.strokeStyle = rgba(col, hl ? 0.95 : 0.14);
       o.stroke();
 
-      if (prog >= 1) {
-        for (let n = 0; n < (hl ? 3 : 1); n++) {
+      if (prog >= 1 && hl) {
+        for (let n = 0; n < 3; n++) {
           const tt = (t * (hl ? 0.45 : 0.28) + i * 0.173 + n / 3) % 1;
           cubicPt(hub, c1, c2, b, tt, p);
           sprite(o, active ? gimg : img, p.x, p.y, hl ? 11 : 7, 0.95 * Math.sin(tt * Math.PI) + 0.1);
         }
         sprite(o, active ? gimg : img, ax, ay, hl ? 16 : 9, 0.9);
-      } else {
+      } else if (prog < 1) {
         sprite(o, wimg, p.x, p.y, 8, 0.9); // growing tip
       }
       i++;
@@ -935,7 +1028,7 @@ export class NeuralEngine {
       el.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0) translate(${(-50 * (1 - bt)).toFixed(1)}%, ${(-50 * bt).toFixed(1)}%) scale(${sc.toFixed(3)})`;
       el.style.transformOrigin = bt > 0.5 ? 'left center' : 'center top';
       el.style.opacity = c.a.toFixed(3);
-      el.style.pointerEvents = c.a > 0.3 ? 'auto' : 'none';
+      el.style.pointerEvents = c.a > 0.3 && c.ta > 0.3 ? 'auto' : 'none';
     }
   }
 }

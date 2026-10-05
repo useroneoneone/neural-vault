@@ -1,4 +1,4 @@
-import { CATEGORIES, categoryForPath, normalizeVaultPath } from './categories.js';
+import { discoverCategories, categoryForPath, normalizeVaultPath } from './categories.js';
 import { buildReadingHistory } from './readingHistory.js';
 
 const MD_EXTENSION = /\.md$/i;
@@ -181,22 +181,34 @@ function pathKey(path) {
 }
 
 function makeResolver(records) {
-  const byPath = new Map(records.map((record) => [pathKey(record.path), record.path]));
+  const exactKey = (path) => normalizeVaultPath(path).replace(MD_EXTENSION, '');
+  const byPath = new Map(records.map((record) => [exactKey(record.path), record.path]));
+  const byFoldedPath = new Map();
   const byName = new Map();
   for (const record of records) {
+    const key = pathKey(record.path);
+    if (!byFoldedPath.has(key)) byFoldedPath.set(key, []);
+    byFoldedPath.get(key).push(record.path);
     const name = pathKey(record.path).split('/').at(-1);
     if (!byName.has(name)) byName.set(name, []);
     byName.get(name).push(record.path);
   }
+  const findPath = (path) => {
+    const exact = byPath.get(exactKey(path));
+    if (exact) return exact;
+    const candidates = byFoldedPath.get(pathKey(path)) ?? [];
+    return candidates.length === 1 ? candidates[0] : undefined;
+  };
   return (raw, sourcePath) => {
     const target = noteTarget(raw);
     if (!target) return { ignored: true };
     const sourceDir = sourcePath.slice(0, sourcePath.lastIndexOf('/') + 1);
-    const local = byPath.get(pathKey(sourceDir + target));
-    const absolute = byPath.get(pathKey(target));
+    const local = findPath(sourceDir + target);
+    const absolute = findPath(target);
     if (target.startsWith('./') || target.startsWith('../')) return { path: local, target };
-    if (absolute) return { path: absolute, target };
+    if (target.includes('/') && absolute) return { path: absolute, target };
     if (local) return { path: local, target };
+    if (absolute) return { path: absolute, target };
     const key = pathKey(target);
     const candidates = target.includes('/')
       ? records.filter((record) => pathKey(record.path).endsWith('/' + key)).map((record) => record.path)
@@ -212,19 +224,21 @@ function makeResolver(records) {
  * Pure shared adapter for the browser snapshot and the Obsidian plugin.
  * records: [{ path, content, stat: {mtime, ctime}, frontmatter? }].
  * options.resolvedLinks: Obsidian metadataCache.resolvedLinks (authoritative).
+ * options.folders: actual folder paths (including empty folders), from the host.
  * options.readingHistory: { [path]: { 'YYYY-MM-DD': true | number } | number[] }.
  * Missing history, view counts and saves stay empty/zero; no events are invented.
  */
-export function buildVault(records = [], { resolvedLinks, readingHistory = {}, now } = {}) {
+export function buildVault(records = [], { resolvedLinks, readingHistory = {}, folders = [], now } = {}) {
   const seenPaths = new Set();
   const normalized = records.filter((record) => record && MD_EXTENSION.test(record.path ?? '')).map((record) => ({ ...record, path: normalizeVaultPath(record.path) })).filter((record) => {
     if (seenPaths.has(record.path)) return false;
     seenPaths.add(record.path);
     return true;
   }).sort((a, b) => a.path.localeCompare(b.path, 'zh-CN', { numeric: true }));
+  const definitions = discoverCategories(normalized, { folders });
   const notes = [];
   for (const record of normalized) {
-    const category = categoryForPath(record.path);
+    const category = categoryForPath(record.path, definitions);
     if (!category) continue;
     const { body, frontmatter } = parseMarkdown(record.content, record.frontmatter);
     const filename = record.path.split('/').at(-1).replace(MD_EXTENSION, '');
@@ -235,7 +249,7 @@ export function buildVault(records = [], { resolvedLinks, readingHistory = {}, n
       path: record.path,
       title,
       cat: category.id,
-      folder: record.path.split('/')[0],
+      folder: category.name,
       words: countWords(body),
       views: numeric(frontmatter.views),
       saves: numeric(frontmatter.saves),
@@ -297,7 +311,7 @@ export function buildVault(records = [], { resolvedLinks, readingHistory = {}, n
     }
   }
   const totalWords = notes.reduce((sum, note) => sum + note.words, 0);
-  const categories = CATEGORIES.map((category) => {
+  const categories = definitions.map((category) => {
     const list = notes.filter((note) => note.cat === category.id);
     const words = list.reduce((sum, note) => sum + note.words, 0);
     const links = list.reduce((sum, note) => sum + note.out.length, 0);

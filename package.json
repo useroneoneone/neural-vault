@@ -1,11 +1,12 @@
 {
   "name": "neural-knowledge-graph",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:stress": "vite --host 127.0.0.1 --port 5174 --strictPort --mode stress",
     "build": "vite build",
     "import:vault": "node scripts/import-vault.mjs",
     "build:plugin": "node scripts/build-plugin.mjs",

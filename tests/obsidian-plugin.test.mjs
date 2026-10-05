@@ -53,6 +53,10 @@ class TFile {
   }
 }
 
+class TFolder {
+  constructor(path) { this.path = path; this.children = []; }
+}
+
 class Plugin extends Component {
   constructor(app) { super(); this.app = app; this.viewFactories = new Map(); this.commands = []; this.events = []; this.saved = []; }
   async loadData() { return this.stored; }
@@ -81,7 +85,7 @@ vm.runInNewContext(result.outputFiles[0].text, {
   exports: pluginModule.exports,
   require(name) {
     assert.equal(name, 'obsidian');
-    return { Plugin, ItemView, TFile, Notice: class {} };
+    return { Plugin, ItemView, TFile, TFolder, Notice: class {} };
   },
   console, setTimeout, clearTimeout,
 });
@@ -94,6 +98,7 @@ function appFor(files) {
   const vault = new Events();
   Object.assign(vault, {
     getMarkdownFiles: () => files.filter((file) => file.extension === 'md'),
+    getAllLoadedFiles: () => files,
     cachedRead: async (file) => { reads.push(file.path); return file.content; },
     getAbstractFileByPath: (path) => files.find((file) => file.path === path) ?? null,
     getName: () => 'Fixture vault',
@@ -119,7 +124,7 @@ async function pluginFor(t, files) {
   return { app, plugin };
 }
 
-test('six-root reading uses cached content and authoritative Obsidian links without writing notes', async (t) => {
+test('all root reading uses cached content and authoritative Obsidian links without writing notes', async (t) => {
   const first = new TFile('01-项目/sub/first.md', '# First\n[[stale]]');
   const second = new TFile('02-资产/second.md', '# Second\nHello');
   const external = new TFile('Daily/private.md', '# Private');
@@ -127,19 +132,19 @@ test('six-root reading uses cached content and authoritative Obsidian links with
   app.metadataCache.resolvedLinks = { [first.path]: { [second.path]: 2 } };
   app.metadataCache.getFileCache = (file) => file === first ? { frontmatter: { title: 'Cached title' } } : null;
   const snapshot = await plugin.getVaultData();
-  assert.equal(snapshot.categories.length, 6);
-  assert.equal(snapshot.notes.length, 2);
+  assert.equal(snapshot.categories.length, 3);
+  assert.equal(snapshot.notes.length, 3);
   assert.equal(snapshot.vaultName, 'Fixture vault');
   assert.equal(snapshot.notes.find((note) => note.id === first.path).title, 'Cached title');
   assert.deepEqual(Array.from(snapshot.notes.find((note) => note.id === first.path).out), [second.path]);
-  assert.deepEqual(app.reads, [first.path, second.path]);
+  assert.deepEqual(app.reads, [first.path, second.path, external.path]);
   assert.equal(plugin.saved.length, 0);
   assert.equal(plugin.viewFactories.has(VIEW_TYPE), true);
   assert.equal(plugin.ribbon.icon, 'network');
   assert.equal(plugin.commands.length, 2);
 });
 
-test('reading events record real days once, ignore other roots and survive folder rename', async (t) => {
+test('reading events record real days once for every root and survive folder rename', async (t) => {
   const note = new TFile('01-项目/sub/first.md', '# First');
   const outside = new TFile('Daily/private.md');
   const { app, plugin } = await pluginFor(t, [note, outside]);
@@ -150,12 +155,12 @@ test('reading events record real days once, ignore other roots and survive folde
   assert.equal(Object.keys(history).length, 1);
   assert.match(Object.keys(history)[0], /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(Object.values(history)[0], 1);
-  assert.equal(plugin.data.readingHistory[outside.path], undefined);
+  assert.equal(Object.keys(plugin.data.readingHistory[outside.path]).length, 1);
   app.vault.fire('rename', { path: '01-项目/renamed' }, '01-项目/sub');
   assert.equal(plugin.data.readingHistory[note.path], undefined);
   assert.equal(Object.keys(plugin.data.readingHistory['01-项目/renamed/first.md']).length, 1);
   app.vault.fire('delete', { path: '01-项目/renamed' });
-  assert.equal(Object.keys(plugin.data.readingHistory).length, 0);
+  assert.equal(Object.keys(plugin.data.readingHistory).length, 1);
 });
 
 test('iframe bridge rejects wrong senders and missing targets, and opens existing Markdown in a new tab', async (t) => {
@@ -211,4 +216,42 @@ test('an event during a pending read causes another snapshot instead of dropping
   const snapshot = await refresh;
   assert.equal(calls, 2);
   assert.equal(snapshot.notes[0].title, 'After');
+});
+
+test('root files and actual empty folders update categories as directories are created and removed', async (t) => {
+  const rootNote = new TFile('README.md', '# Root');
+  const nested = new TFile('Custom/deep/note.md', '# Nested');
+  const empty = new TFolder('Empty');
+  const files = [rootNote, nested, empty, new TFolder('Custom'), new TFolder('/')];
+  const { app, plugin } = await pluginFor(t, files);
+  let snapshot = await plugin.getVaultData();
+  assert.deepEqual(new Set(Array.from(snapshot.categories, ({ root }) => root)), new Set(['', 'Custom', 'Empty']));
+  assert.equal(snapshot.categories.find(({ root }) => root === 'Empty').count, 0);
+  assert.equal(snapshot.notes.find(({ path }) => path === rootNote.path).cat, 'vault-root');
+  app.workspace.fire('file-open', rootNote);
+  assert.equal(Object.keys(plugin.data.readingHistory[rootNote.path]).length, 1);
+  const created = new TFolder('New empty folder');
+  files.push(created);
+  app.vault.fire('create', created);
+  snapshot = await plugin.getVaultData(true);
+  assert.equal(snapshot.categories.find(({ root }) => root === created.path).count, 0);
+  files.splice(files.indexOf(created), 1);
+  app.vault.fire('delete', created);
+  snapshot = await plugin.getVaultData(true);
+  assert.equal(snapshot.categories.some(({ root }) => root === created.path), false);
+});
+
+test('an empty vault has no invented categories and attachment-only roots can come from folders', async (t) => {
+  const files = [];
+  const { app, plugin } = await pluginFor(t, files);
+  let snapshot = await plugin.getVaultData();
+  assert.equal(snapshot.categories.length, 0);
+  assert.equal(snapshot.notes.length, 0);
+  files.push(new TFolder('Attachments'), new TFile('Attachments/image.png'));
+  app.vault.fire('create', files[0]);
+  snapshot = await plugin.getVaultData(true);
+  assert.equal(snapshot.categories.length, 1);
+  assert.equal(snapshot.categories[0].root, 'Attachments');
+  assert.equal(snapshot.categories[0].count, 0);
+  assert.equal(app.reads.length, 0);
 });

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { DEMO_RECORDS, DEMO_SNAPSHOT } from '../src/data/vaultDemo.js';
 import { buildVault } from '../src/data/vaultAdapter.js';
+import { createStressSnapshot } from '../src/data/vaultStressDemo.js';
 import { excludePrivatePreviewData } from '../scripts/private-preview-data.mjs';
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -17,7 +18,7 @@ async function fixture(callback, { local = false } = {}) {
   const data = path.join(directory, 'src', 'data');
   try {
     await mkdir(data, { recursive: true });
-    for (const file of ['vault.js', 'vaultDemo.js', 'vaultAdapter.js', 'categories.js', 'random.js', 'readingHistory.js']) await copyFile(path.join(project, 'src', 'data', file), path.join(data, file));
+    for (const file of ['vault.js', 'vaultDemo.js', 'vaultStressDemo.js', 'vaultAdapter.js', 'categories.js', 'random.js', 'readingHistory.js']) await copyFile(path.join(project, 'src', 'data', file), path.join(data, file));
     if (local) await writeFile(path.join(data, 'vaultSnapshot.json'), JSON.stringify({ vaultName: localCanary, records: [{ path: `01-项目/${localCanary}.md`, content: `# ${localCanary}\nSynthetic local preview content.` }] }), 'utf8');
     return await callback(directory);
   } finally {
@@ -27,13 +28,13 @@ async function fixture(callback, { local = false } = {}) {
   }
 }
 
-async function compiledVault(directory, { dev = false, privateGuard = false } = {}) {
+async function compiledVault(directory, { dev = false, privateGuard = false, stress = false } = {}) {
   const output = await build({
     root: directory,
     configFile: false,
     logLevel: 'silent',
     plugins: privateGuard ? [excludePrivatePreviewData(directory)] : [],
-    define: { 'import.meta.env.DEV': JSON.stringify(dev) },
+    define: { 'import.meta.env.DEV': JSON.stringify(dev), 'import.meta.env.VITE_STRESS_PREVIEW': JSON.stringify(stress ? 'true' : 'false') },
     build: { write: false, minify: true, lib: { entry: path.join(directory, 'src', 'data', 'vault.js'), formats: ['es'] } },
   });
   const generated = (Array.isArray(output) ? output : [output]).flatMap((result) => result.output);
@@ -44,7 +45,7 @@ async function compiledVault(directory, { dev = false, privateGuard = false } = 
 
 test('the public synthetic demo covers all six roots, actual sample links and readable technical examples', () => {
   const vault = buildVault(DEMO_RECORDS);
-  assert.deepEqual(vault.categories.map(({ name, count }) => [name, count]), [['项目', 3], ['资产', 3], ['资源', 3], ['辅助', 3], ['灵感', 3], ['skills', 3]]);
+  assert.deepEqual(vault.categories.map(({ name, count }) => [name, count]), [['01-项目', 3], ['02-资产', 3], ['03-资源', 3], ['04-辅助', 3], ['05-灵感', 3], ['06-Skills', 3]]);
   assert.equal(vault.stats.unresolved, 0);
   assert.ok(vault.edges.length > 0);
   assert.ok(vault.stats.mutual > 0);
@@ -86,5 +87,39 @@ test('the plugin loader blocks private preview content even if a build accidenta
     const pluginProduction = await compiledVault(directory, { privateGuard: true });
     assert.equal(pluginProduction.vault.notes.length, 18);
     assert.equal(pluginProduction.code.includes(localCanary), false);
+  }, { local: true });
+});
+
+test('large synthetic preview covers arbitrary roots, empty folders, root notes and fully resolved duplicate-name links', () => {
+  const snapshot = createStressSnapshot();
+  const vault = buildVault(snapshot.records, { folders: snapshot.folders });
+  assert.equal(snapshot.records.length, 472);
+  assert.equal(new Set(snapshot.records.map((record) => record.path)).size, 472);
+  assert.equal(vault.categories.length, 12);
+  assert.equal(vault.notes.length, 472);
+  assert.equal(vault.categories.find((c) => c.name === '空目录').count, 0);
+  assert.equal(vault.categories.find((c) => c.isRoot).count, 6);
+  assert.equal(vault.categories.find((c) => c.name === '项目').count, 120);
+  assert.equal(vault.categories.find((c) => c.name === '资产').count, 108);
+  assert.equal(vault.unresolved.length, 0);
+  assert.ok(vault.stats.mutual > 0);
+  assert.equal(vault.notes.filter((n) => n.path.endsWith('/同名笔记.md')).length, 20);
+  const larger = createStressSnapshot({ extraRoots: 18 });
+  const more = buildVault(larger.records, { folders: larger.folders });
+  assert.equal(more.categories.length, 30);
+  assert.equal(more.notes.length, 562);
+  assert.deepEqual(more.unresolved, []);
+});
+
+test('stress mode bypasses the private local import; production still uses the small public demo', async () => {
+  await fixture(async (directory) => {
+    const preview = await compiledVault(directory, { dev: true, stress: true });
+    assert.equal(preview.vault.notes.length, 472);
+    assert.equal(preview.vault.categories.length, 12);
+    assert.equal(preview.code.includes(localCanary), false);
+    const production = await compiledVault(directory, { stress: true });
+    assert.equal(production.vault.notes.length, 18);
+    assert.equal(production.code.includes(localCanary), false);
+    assert.equal(production.code.includes('Research Lab'), false);
   }, { local: true });
 });

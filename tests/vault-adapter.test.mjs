@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildVault, buildOutline, countWords, parseMarkdown } from '../src/data/vaultAdapter.js';
-import { CATEGORIES, categoryForPath } from '../src/data/categories.js';
+import { CATEGORIES, categoryForPath, discoverCategories } from '../src/data/categories.js';
 
 const record = (path, content = '', extra = {}) => ({ path, content, stat: { mtime: Date.parse('2026-10-03T20:00:00Z') }, ...extra });
 
-test('the six root groups flatten all nested notes without importing unrelated roots', () => {
+test('actual roots flatten nested notes and preserve the existing six visual presets', () => {
   const vault = buildVault([
     record('01-项目/深层/再一层/README.md', '---\ntitle: 真正的项目标题\n---\n# 标题\n正文'),
     record('02-资产/README.md', '# 资产框架说明'),
@@ -14,16 +14,18 @@ test('the six root groups flatten all nested notes without importing unrelated r
     record('05-灵感/想法.md', '# 想法'),
     record('06-Skills/工作流/SKILL.md', '# 可重复流程'),
     record('Daily/2026-10-04.md', '# 日记'),
-    record('Ideas/outside.md', '# 不匹配'),
+    record('Ideas/outside.md', '# 新目录'),
     record('index.md', '# 总索引'),
   ]);
-  assert.deepEqual(vault.categories.map(({ name, count }) => [name, count]), [['项目', 1], ['资产', 1], ['资源', 1], ['辅助', 1], ['灵感', 1], ['skills', 1]]);
+  assert.deepEqual(vault.categories.map(({ name, count }) => [name, count]), [['01-项目', 1], ['02-资产', 1], ['03-资源', 1], ['04-辅助', 1], ['05-灵感', 1], ['06-Skills', 1], ['Daily', 1], ['Ideas', 1], ['根目录', 1]]);
   const note = vault.notes.find((entry) => entry.cat === 'projects');
   assert.equal(note.id, '01-项目/深层/再一层/README.md');
   assert.equal(note.path, note.id);
   assert.equal(note.folder, '01-项目');
   assert.equal(note.title, '真正的项目标题');
-  assert.equal(vault.stats.notes, 6);
+  assert.equal(vault.stats.notes, 9);
+  assert.equal(vault.notes.find(({ path }) => path === 'index.md').cat, 'vault-root');
+  assert.equal(vault.notes.find(({ path }) => path === 'index.md').folder, '根目录');
   assert.equal(categoryForPath('06-Skills\\流程\\SKILL.md').id, 'skills');
   assert.equal(categoryForPath('skills/a.md').id, 'skills');
   assert.equal(categoryForPath('Daily/01-项目/a.md'), null);
@@ -42,12 +44,12 @@ test('real wiki and Markdown links resolve aliases, fragments, relative paths an
     { path: 'index.md' },
   ]);
   const notes = Object.fromEntries(vault.notes.map((note) => [note.id, note]));
-  assert.deepEqual(new Set(notes[project].out), new Set([asset, reference]));
+  assert.deepEqual(new Set(notes[project].out), new Set([asset, reference, 'index.md']));
   assert.equal(notes[project].backlinks, 1);
   assert.equal(notes[asset].backlinks, 1, 'repeated citations do not duplicate graph relationships');
   assert.equal(notes[reference].backlinks, 1);
-  assert.equal(vault.edges.length, 2);
-  assert.equal(vault.stats.links, 3);
+  assert.equal(vault.edges.length, 3);
+  assert.equal(vault.stats.links, 4);
   assert.equal(vault.stats.mutual, 1);
   assert.equal(notes[project].mutual, 1);
   assert.deepEqual(vault.unresolved, ['未完成主题']);
@@ -117,4 +119,60 @@ test('plugin metadata overrides simple YAML and recorded dates align with actual
   const before = JSON.stringify(records);
   buildVault(records);
   assert.equal(JSON.stringify(records), before, 'the adapter never mutates supplied records');
+});
+
+test('arbitrary roots, their empty folders and root notes form only actual categories', () => {
+  const vault = buildVault([record('Research/deep/note.md', '# Research'), record('README.md', '# 首页')], { folders: ['Research', 'Empty Folder/deeper', { path: '另一个空目录' }, '/'] });
+  assert.deepEqual(new Set(vault.categories.map(({ root }) => root)), new Set(['Research', 'Empty Folder', '另一个空目录', '']));
+  assert.equal(vault.categories.find(({ root }) => root === 'Research').count, 1);
+  assert.equal(vault.categories.find(({ root }) => root === 'Empty Folder').count, 0);
+  assert.equal(vault.categories.find(({ root }) => root === '').isRoot, true);
+  assert.equal(categoryForPath('Research/deep/note.md', vault.categories).root, 'Research');
+  assert.equal(categoryForPath('README.md', vault.categories).id, 'vault-root');
+  assert.equal(categoryForPath('Missing/note.md', vault.categories), null);
+  assert.deepEqual(buildVault([]).categories, []);
+  assert.deepEqual(buildVault([]).stats, { notes: 0, links: 0, mutual: 0, unresolved: 0 });
+  assert.equal(buildVault([], { folders: ['Empty'] }).categories.length, 1);
+  assert.equal(buildVault([], { folders: ['Empty'] }).categories[0].count, 0);
+});
+
+test('aliases and case variants are independent actual roots with collision-free IDs', () => {
+  const records = [record('01-项目/a.md'), record('项目/a.md'), record('06-Skills/a.md'), record('skills/a.md'), record('Skills/a.md'), record('根目录/a.md'), record('root.md')];
+  const vault = buildVault(records);
+  assert.equal(vault.categories.length, 7);
+  assert.equal(new Set(vault.categories.map(({ id }) => id)).size, 7);
+  assert.equal(vault.categories.find(({ root }) => root === '01-项目').id, 'projects');
+  assert.equal(vault.categories.find(({ root }) => root === '06-Skills').id, 'skills');
+  assert.equal(vault.categories.find(({ root }) => root === '项目').id, 'folder:' + encodeURIComponent('项目'));
+  assert.notEqual(vault.categories.find(({ root }) => root === 'skills').id, vault.categories.find(({ root }) => root === 'Skills').id);
+  assert.notEqual(vault.categories.find(({ root }) => root === '根目录').id, 'vault-root');
+  for (const note of vault.notes) assert.equal(categoryForPath(note.path, vault.categories).id, note.cat);
+  assert.equal(buildVault([record('项目/a.md')]).categories[0].id, 'projects', 'a single known alias can use its established preset');
+});
+
+test('generic category appearance is deterministic across unrelated additions, deletions and record ordering', () => {
+  const records = [record('Research/deep/a.md'), record('Archive/b.md')];
+  const original = discoverCategories(records);
+  const expanded = discoverCategories([...records].reverse().concat(record('New Root/c.md')), { folders: ['Empty'] });
+  for (const category of original) {
+    assert.deepEqual(expanded.find(({ root }) => root === category.root), category);
+    assert.match(category.color, /^#[\da-f]{6}$/);
+    assert.ok(category.pos.every(Number.isFinite));
+  }
+  const reduced = discoverCategories([records[0]]);
+  assert.deepEqual(reduced[0], original.find(({ root }) => root === 'Research'));
+  const empty = discoverCategories([], { folders: ['Research'] });
+  assert.deepEqual(empty[0], reduced[0], 'empty and populated versions of a folder keep their identity');
+});
+
+test('duplicate filenames resolve in their nearest actual root and full paths remain unambiguous', () => {
+  const source = 'Work/task.md';
+  const vault = buildVault([
+    record(source, '[[README]] [[Research/README]] [[../README]]'),
+    record('Work/README.md'), record('Research/README.md'), record('README.md'),
+    record('Skills/SKILL.md', '[[skills/SKILL]]'), record('skills/SKILL.md'),
+  ]);
+  assert.deepEqual(new Set(vault.notes.find(({ id }) => id === source).out), new Set(['Work/README.md', 'Research/README.md', 'README.md']));
+  assert.deepEqual(vault.notes.find(({ id }) => id === 'Skills/SKILL.md').out, ['skills/SKILL.md']);
+  assert.equal(vault.stats.unresolved, 0);
 });
