@@ -1,5 +1,6 @@
 # Neural Vault
 **一个桌面版 Obsidian 插件，自动把知识库里的根目录变成水母星图。笔记越多画面越绚丽，打开分支查看笔记，切换洞察探索双链关系。**
+
 <img width="1920" height="945" alt="Neural Vault" src="https://github.com/user-attachments/assets/03b654dd-eeac-4166-92cd-a8d5bca61a53" />
 ## 功能
 
@@ -12,7 +13,13 @@
 
 界面和知识库数据在本机运行，插件支持离线使用。阅读历史从启用插件后开始记录，保存于插件自己的数据文件；笔记正文保持原样。
 
-https://github.com/user-attachments/assets/54efa401-145e-4f47-b154-67ff91e53c1e
+
+
+https://github.com/user-attachments/assets/022235e3-1ceb-47fe-895b-b1e4a9d086b6
+
+
+
+
 
 **许可：个人非商业使用免费；商业用途需另行授权；二次开发后分发须保留原作者及来源。** 详见下方许可说明。
 
