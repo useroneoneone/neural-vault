@@ -93,7 +93,7 @@ export default function NoteList({ cat, notes, activeId, onSelect, anchorRegistr
           {visibleNotes.map((n, ordinal) => {
             const index = listWindow.start + ordinal;
             const active = n.id === activeId;
-            const col = active ? '#f4c069' : cat.color;
+            const col = cat.color;
             const opening = openingWindow.current;
             const firstEntry = !hasScrolled && opening && index >= opening.start && index < opening.end;
             const entranceDelay = firstEntry
@@ -118,8 +118,9 @@ export default function NoteList({ cat, notes, activeId, onSelect, anchorRegistr
                   onMouseEnter={() => engineRef.current?.setHoverAnchor(n.id)}
                   onMouseLeave={() => engineRef.current?.setHoverAnchor(null)}
                   className={`group relative flex w-full items-center rounded-lg border py-1 pl-6 pr-2.5 text-left transition-colors ${
-                    active ? 'border-white/20 bg-white/[0.07] shadow-[0_0_24px_-8px_rgba(244,192,105,.5)]' : 'border-transparent hover:border-white/10 hover:bg-white/[0.035]'
+                    active ? 'border-white/20 bg-white/[0.07]' : 'border-transparent hover:border-white/10 hover:bg-white/[0.035]'
                   }`}
+                  style={active ? { boxShadow: `0 0 24px -8px ${col}80` } : undefined}
                 >
                   {/* fiber anchor */}
                   <span

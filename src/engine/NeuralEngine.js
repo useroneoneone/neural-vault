@@ -951,7 +951,7 @@ export class NeuralEngine {
     const lr = card.getBoundingClientRect();
     const bt = this.branchT, ot = this.overlayT, t = this.t;
     const hub = { x: lr.right + 24, y: lr.top + lr.height / 2 };
-    const img = glow(S.color), wimg = glow(WHITE), gimg = glow('#f4c069');
+    const img = glow(S.color), wimg = glow(WHITE);
     const p = this._p;
     o.globalCompositeOperation = 'lighter';
 
@@ -972,7 +972,7 @@ export class NeuralEngine {
     }
     visibleItems.sort((a, b) => (a.item.visibleOrder ?? a.item.order ?? a.ay) - (b.item.visibleOrder ?? b.item.order ?? b.ay));
     let i = 0;
-    for (const { id, item, ax, ay } of visibleItems) {
+    for (const { id, ax, ay } of visibleItems) {
       const maxStagger = Math.min(0.5, visibleItems.length * 0.02);
       const stagger = (i / Math.max(1, visibleItems.length)) * maxStagger;
       const prog = smooth(clamp((ot - stagger) / (1 - stagger), 0, 1));
@@ -980,7 +980,7 @@ export class NeuralEngine {
       const b = { x: ax, y: ay }, dx = ax - hub.x;
       const c1 = { x: hub.x + dx * 0.5, y: hub.y }, c2 = { x: ax - dx * 0.5, y: ay };
       const active = id === this.activeId, hl = id === this.hoverAnchor || active;
-      const col = active ? '#f4c069' : item.color;
+      const col = S.color;
 
       o.globalAlpha = 1;
       o.beginPath(); o.moveTo(hub.x, hub.y);
@@ -994,13 +994,14 @@ export class NeuralEngine {
       o.strokeStyle = rgba(col, hl ? 0.95 : 0.14);
       o.stroke();
 
-      if (prog >= 1 && hl) {
+      // Easing approaches 1 asymptotically; start flow when each visible line is effectively complete.
+      if (prog >= 0.995) {
         for (let n = 0; n < 3; n++) {
           const tt = (t * (hl ? 0.45 : 0.28) + i * 0.173 + n / 3) % 1;
           cubicPt(hub, c1, c2, b, tt, p);
-          sprite(o, active ? gimg : img, p.x, p.y, hl ? 11 : 7, 0.95 * Math.sin(tt * Math.PI) + 0.1);
+          sprite(o, img, p.x, p.y, hl ? 11 : 7, 0.95 * Math.sin(tt * Math.PI) + 0.1);
         }
-        sprite(o, active ? gimg : img, ax, ay, hl ? 16 : 9, 0.9);
+        sprite(o, img, ax, ay, hl ? 16 : 9, 0.9);
       } else if (prog < 1) {
         sprite(o, wimg, p.x, p.y, 8, 0.9); // growing tip
       }

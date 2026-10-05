@@ -1,7 +1,7 @@
 {
   "id": "neural-vault",
   "name": "Neural Vault",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minAppVersion": "1.7.2",
   "description": "自动适配知识库根目录，用水母星图、分支与洞察浏览笔记和双链。",
   "author": "Y",
