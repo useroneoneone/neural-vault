@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createUiDocument } from '../obsidian-plugin/iframeDocument.js';
 import { excludePrivatePreviewData } from './private-preview-data.mjs';
+import { writeThirdPartyNotices } from './third-party-notices.mjs';
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const uiDirectory = path.join(project, '.codex-plugin-build', 'ui');
@@ -14,7 +15,7 @@ const pluginDirectory = path.join(project, 'plugin-dist', 'neural-vault');
 
 process.env.NEURAL_PLUGIN_BUILD = '1';
 
-await viteBuild({
+const uiBuild = await viteBuild({
   root: project,
   configFile: false,
   plugins: [
@@ -41,6 +42,8 @@ if (cssFiles.length !== 1) throw new Error('Expected a single bundled CSS file.'
 const uiCss = await readFile(path.join(uiDirectory, cssFiles[0]), 'utf8');
 const document = createUiDocument(uiScript, uiCss);
 await mkdir(pluginDirectory, { recursive: true });
+const notices = await readFile(path.join(project, 'NOTICE'), 'utf8');
+const requiredNotices = notices.split(/\r?\n/).filter((line) => line.startsWith('Required Notice:'));
 
 await bundle({
   absWorkingDir: project,
@@ -52,6 +55,7 @@ await bundle({
   outfile: path.join(pluginDirectory, 'main.js'),
   sourcemap: false,
   minify: false,
+  banner: { js: ['// Neural Vault original portions: SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0', '// License: https://polyformproject.org/licenses/noncommercial/1.0.0', ...requiredNotices.map((line) => `// ${line}`)].join('\n') },
   plugins: [{
     name: 'inline-offline-ui',
     setup(build) {
@@ -64,4 +68,9 @@ await bundle({
 await copyFile(path.join(project, 'obsidian-plugin', 'manifest.json'), path.join(pluginDirectory, 'manifest.json'));
 await copyFile(path.join(project, 'obsidian-plugin', 'styles.css'), path.join(pluginDirectory, 'styles.css'));
 await copyFile(path.join(project, 'README.md'), path.join(pluginDirectory, 'README.md'));
+for (const file of ['LICENSE', 'NOTICE']) await copyFile(path.join(project, file), path.join(pluginDirectory, file));
+const uiOutputs = Array.isArray(uiBuild) ? uiBuild : [uiBuild];
+const moduleIds = uiOutputs.flatMap(({ output }) => output.filter((item) => item.type === 'chunk').flatMap((chunk) => Object.keys(chunk.modules)));
+const thirdPartyNotices = await writeThirdPartyNotices({ moduleIds, pluginDirectory, projectDirectory: project });
+if (thirdPartyNotices.warnings.length) throw new Error(`Missing third-party license notices: ${thirdPartyNotices.warnings.join('; ')}`);
 console.log(`Plugin prepared: ${pluginDirectory}`);

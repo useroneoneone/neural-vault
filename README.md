@@ -4,7 +4,7 @@
 
 https://github.com/user-attachments/assets/ac28557a-42c7-4013-b7e9-4ee91eaa94c1
 
-
+**许可：个人非商业使用免费；商业用途需另行授权；二次开发后分发须保留原作者及来源。** 详见下方许可说明。
 
 ## 功能
 
@@ -51,7 +51,9 @@ https://github.com/user-attachments/assets/ac28557a-42c7-4013-b7e9-4ee91eaa94c1
 4. 打开 Obsidian「设置 → 第三方插件」，关闭受限模式，刷新插件列表并启用 **Neural Vault**。
 5. 点击左侧的网络图标，或在命令面板执行 **Neural Vault: 打开知识库水母星图**。
 
-需要更新时，关闭插件，用新版压缩包中的文件替换上述三个文件，然后重新启用。保留已有 `data.json` 可以保留阅读历史。
+完整压缩包还附带 `LICENSE`、`NOTICE` 和 `THIRD_PARTY_NOTICES.txt`，请一并保留。
+
+需要更新时，关闭插件，用新版压缩包中的文件覆盖插件目录，然后重新启用。保留已有 `data.json` 可以保留阅读历史。
 
 ## 本地开发
 
@@ -75,3 +77,17 @@ npm run import:vault -- "/path/to/your-vault"
 ```
 
 Web 预览导入的快照只用于本地开发；安装后的插件直接读取当前 Obsidian 知识库。详细构建和数据说明见 [插件部署文档](docs/obsidian-plugin.md)。
+
+## 许可与二次开发
+
+项目作者拥有的代码和文档采用 **[PolyForm Noncommercial 1.0.0](LICENSE)**（SPDX：`PolyForm-Noncommercial-1.0.0`）。这是源码公开的非商业许可证。
+
+- 个人学习、研究、兴趣项目等非商业使用免费，也允许非商业修改和分享；许可列明的教育、慈善等非商业机构用途按许可证原文执行。
+- 商业用途须先取得作者单独的书面授权。可通过 [GitHub Issues](https://github.com/useroneoneone/neural-vault/issues)提交授权申请。
+- 二次开发后对外分发，须随复制品保留 `LICENSE`（或官方许可证链接）及 [NOTICE](NOTICE) 中两条 `Required Notice:`，注明原作者 `useroneoneone` 和原始仓库地址；第三方版权与许可证声明也须保留。
+
+二次开发项目可在 README 中写明：
+
+> 本项目基于 [Neural Vault](https://github.com/useroneoneone/neural-vault) 二次开发，原作者为 useroneoneone；原始代码采用 PolyForm Noncommercial 1.0.0，商业用途需另行授权。
+
+许可证完整条款以 `LICENSE` 为准。第三方依赖按各自许可证授权，插件包附 `THIRD_PARTY_NOTICES.txt`；使用者自己的知识库笔记保持其原有权属。

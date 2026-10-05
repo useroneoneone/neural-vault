@@ -12,7 +12,7 @@ Neural Vault 支持桌面版 Obsidian 1.7.2 及以上，插件 ID 为 `neural-va
 
 命令 **Neural Vault: 刷新知识库数据** 可手动刷新；通常文件变化会自动更新界面。
 
-更新时先关闭插件，替换三个发布文件，再重新启用。保留插件目录中的 `data.json` 可保留阅读历史。卸载时关闭插件，再删除 `neural-vault` 目录。
+更新时先关闭插件，用新版发布包内的文件覆盖插件目录，包括许可和第三方声明，再重新启用。保留插件目录中的 `data.json` 可保留阅读历史。卸载时关闭插件，再删除 `neural-vault` 目录。
 
 ## 从源码构建
 
@@ -29,12 +29,16 @@ npm run build:plugin
 plugin-dist/neural-vault/
 ├── main.js
 ├── manifest.json
-└── styles.css
+├── styles.css
+├── README.md
+├── LICENSE
+├── NOTICE
+└── THIRD_PARTY_NOTICES.txt
 ```
 
 构建使用 Vite 将 React 界面打包为单文件 IIFE，再使用 esbuild 生成 Obsidian 加载的 CommonJS 插件。`obsidian` API 由宿主提供。界面在 iframe 中运行，脚本和样式内嵌于插件，使用系统字体回退，因此安装后无需启动开发服务器。
 
-发布包构建使用空快照替换 Web 预览数据，分发包中的笔记内容来自使用者当前打开的 Obsidian 知识库。
+发布包构建排除本地预览快照，内置合成演示数据；安装运行后从使用者当前打开的 Obsidian 知识库读取笔记内容。
 
 运行检查：
 
@@ -102,3 +106,9 @@ Web 预览使用本地 Markdown 链接解析。别名、重名和复杂相对路
 - [Vault](https://docs.obsidian.md/Plugins/Vault)
 - [Events](https://docs.obsidian.md/Plugins/Events)
 - [Obsidian API 类型](https://github.com/obsidianmd/obsidian-api/blob/master/obsidian.d.ts)
+
+## 许可与分发
+
+本项目原始代码和文档采用 [PolyForm Noncommercial 1.0.0](../LICENSE)。个人非商业用途免费；商业用途须取得作者单独书面授权；许可证列明的非商业机构用途按原文执行。
+
+分发原版或二次开发版本时，须保留许可证或其官方链接，以及 [NOTICE](../NOTICE) 中的两条 `Required Notice:`，明确原作者和原始仓库。推荐在二次开发项目的 README 中同时注明来源。完整安装包随附项目许可和第三方许可证声明；第三方依赖仍采用各自许可证。
