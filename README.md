@@ -1,8 +1,17 @@
 # Neural Vault
 
+<img width="1920" height="945" alt="Neural Vault" src="https://github.com/user-attachments/assets/03b654dd-eeac-4166-92cd-a8d5bca61a53" />
+
+
 一个桌面版 Obsidian 插件，自动把知识库里的根目录变成水母星图。打开分支查看笔记，切换洞察探索双链关系。
 
-https://github.com/user-attachments/assets/ac28557a-42c7-4013-b7e9-4ee91eaa94c1
+
+
+Uploading Neural Vault.mp4…
+
+
+
+
 
 **许可：个人非商业使用免费；商业用途需另行授权；二次开发后分发须保留原作者及来源。** 详见下方许可说明。
 
