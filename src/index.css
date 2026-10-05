@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "./";
+@source "../index.html";
 
 @theme {
   --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
